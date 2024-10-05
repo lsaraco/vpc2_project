@@ -9,7 +9,7 @@ class GazeEstimation_ResNet18(nn.Module):
     def __init__(self,pretrained=True):
         super(GazeEstimation_ResNet18, self).__init__()
         # Load the pretrained ResNet18 model
-        self.resnet18 = models.resnet18(pretrained=pretrained)
+        self.resnet18 = models.resnet18(weights=models.ResNet18_Weights.DEFAULT) if pretrained else models.resnet18
         
         # Modify the final fully connected layer to output 2 values (yaw, pitch)
         num_ftrs = self.resnet18.fc.in_features
