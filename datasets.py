@@ -6,16 +6,23 @@ import torch
 import numpy as np
 import h5py
 
+import torchvision
+from PIL import Image
+import torchvision.transforms as transforms
+
 class MPIIFaceGaze(Dataset):
 
     dataset_path:str|None = None
     images_list = None
     gaze_list = None
 
-    def __init__(self, dataset_path,imgs_per_individual):
+    def __init__(self, dataset_path, transform=None, imgs_per_individual=None):
+        
         self.dataset_path = dataset_path
         self.imgs_per_individual = imgs_per_individual
-        self.total_images = self.imgs_per_individual * 15 #Hay 15 personas en el dataset the MPIIFaceGaze
+        #self.total_images = self.imgs_per_individual * 15 #Hay 15 personas en el dataset the MPIIFaceGaze
+
+        self.transform = transform
 
         # Open the file in read mode
         images_list = []
@@ -30,7 +37,10 @@ class MPIIFaceGaze(Dataset):
                 # pose = individual_dataset["pose"]
 
                 # Se eligen imgs_per_individual indices random del dataset
-                random_indices = torch.randperm(len(images))[:imgs_per_individual]
+                if imgs_per_individual is None:
+                    random_indices = torch.randperm(len(images)) 
+                else:
+                    random_indices = torch.randperm(len(images))[:imgs_per_individual]
 
                 for i in random_indices:
                     # Las imagenes tienen un indice en el formato "xxxx", por ejemplo "0230"
@@ -56,4 +66,9 @@ class MPIIFaceGaze(Dataset):
         image = self.images_list[idx]
         label = self.gaze_list[idx]
 
+        # Aplico transformaciones a las imagens 
+        if self.transform:
+            image = self.transform(image)  
+
         return image, label
+
