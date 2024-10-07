@@ -43,7 +43,7 @@ class MPIIFaceGaze(Dataset):
                     random_indices = torch.randperm(len(images))[:imgs_per_individual]
 
                 for i in random_indices:
-                    # Las imagenes tienen un indice en el formato "xxxx", por ejemplo "0230"
+                    # Las imagenes se identifican con 4 números. Tienen un indice en el formato "xxxx", por ejemplo "0230"
                     i_key = f"{i:04d}"
                     img = np.array(images[i_key],dtype=np.uint8)
                     gaze = np.array(gazes[i_key],dtype=float)

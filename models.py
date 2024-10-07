@@ -163,7 +163,7 @@ class BaseGazeEstimationModel(nn.Module):
 
 class GazeEstimation_ResNet18(BaseGazeEstimationModel):
 
-    def __init__(self,name="GazeEstimation_ResNet18", pretrained=True):
+    def __init__(self,name="GazeEstimation_ResNet18", pretrained=True, debug=False):
         super().__init__(name=name)
 
         # Configuración de parámetros respecto al modelo base
@@ -172,10 +172,13 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
         # Partimos de una resnet18 pre entrenada
         self.resnet18 = models.resnet18(weights=models.ResNet18_Weights.DEFAULT) if pretrained else models.resnet18
 
-        # Se congelan todos los parámetros de las primeras capas para que no sean entrenables
-        for param in self.resnet18.parameters():
-            param.requires_grad = False
-        
+        # Se congelan todos los parámetros de las primeras capas ya que a pesar de la diferencia entre
+        # ImageNet y este dataset se supone que las primeras capas capturan rasgos generales como bordes
+        # Capas a congelar: initial layer y layer1
+        for name, param in self.resnet18.named_parameters():
+             if "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
+                param.requires_grad = False
+
         # Se modificará la última capa fully connected
         num_ftrs = self.resnet18.fc.in_features
         
@@ -193,6 +196,11 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
         # Y se la hace entrenable
         for param in self.resnet18.fc.parameters():
             param.requires_grad = True
+
+        # Verificar qué capas quedaron entrenables y cuáles no
+        if debug:
+            for name, param in self.named_parameters():
+                print(f"{name}: {'Entrenable' if param.requires_grad else 'No entrenable'}")
             
 
 
