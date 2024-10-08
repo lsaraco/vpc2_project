@@ -15,10 +15,11 @@ from aux_functions import angle_to_2d,is_accurate
 class BaseGazeEstimationModel(nn.Module):
     """Clase base para los modelos de estimación de mirada."""
     ACCURACY_TOLERANCE = 15
-    VAL_LOSS_TOLERANCE = 3 #Tolera hasta 3 epochs sin que el loss haya disminuido
+    VAL_LOSS_TOLERANCE = 6 #Tolera hasta 6 epochs sin que el loss haya disminuido
     dynamic_lr = False
     lr_epochs_adjustment = 20
     lr_adjustment_ratio = 0.1
+    minimum_lr = 1e-6
     
 
     def __init__(self,name="Base"):
@@ -30,6 +31,7 @@ class BaseGazeEstimationModel(nn.Module):
         self.model_weights_path = f"./modelos/{name}.pth"
         self.minimum_val_loss = 1e10 #Grande a propósito, para que el primer valor de loss sea el minimo
         self.not_minimum_count = 0
+        self.early_stop = False
 
 
     def get_current_time_str(self):
@@ -88,6 +90,10 @@ class BaseGazeEstimationModel(nn.Module):
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = param_group['lr']*self.lr_adjustment_ratio
                         current_lr = param_group['lr']
+                        if current_lr < self.minimum_lr:
+                            param_group['lr'] = self.minimum_lr
+                            current_lr = self.minimum_lr
+                            self.dynamic_lr = False
                 
             # Train por cada epoch
             train_loss,train_accuracy = self.train_one_epoch(train_loader, criterion, optimizer, device)
@@ -113,9 +119,8 @@ class BaseGazeEstimationModel(nn.Module):
                             print(f"Nuevo mínimo de loss encontrado! Guardando modelo en {self.model_weights_path}")
                         else:
                             self.not_minimum_count += 1
-                            if self.not_minimum_count >= self.VAL_LOSS_TOLERANCE:
-                                print(f"Se interrimpió el entrenamiento porque en los últimos {self.VAL_LOSS_TOLERANCE} epochs\
-                                       no se logró menor loss que el mínimo (min:{self.minimum_val_loss})")
+                            if self.early_stop and self.not_minimum_count >= self.VAL_LOSS_TOLERANCE:
+                                print(f"Se interrumpió el entrenamiento porque en los últimos {self.VAL_LOSS_TOLERANCE} epochs no se logró menor loss que el mínimo (min:{self.minimum_val_loss})")
                                 break
 
 
@@ -283,11 +288,11 @@ class CNN_custom(BaseGazeEstimationModel):
     img_size = 224 # Para que sea compatible con las resnet
 
     # Capas de convolución
-    self.conv1 = self.conv_block(in_channels, 16, k=1) #Primer capa con kernel fijo para capturar detalles de la imagen
+    self.conv1 = self.conv_block(in_channels, 16, k=5) #Primer capa con kernel fijo para capturar detalles de la imagen
     self.conv1_out = None
     self.conv2 = self.conv_block(16, 32, k=kernel_size)
     self.conv2_out = None
-    self.drop_cnn = torch.nn.Dropout2d(p=0.5, inplace=False)
+    self.drop_cnn = torch.nn.Dropout2d(p=0.3, inplace=False)
     self.conv3 = self.conv_block(32, 64, k=kernel_size)
     self.conv3_out = None
     self.conv4 = self.conv_block(64, 128, k=kernel_size)
