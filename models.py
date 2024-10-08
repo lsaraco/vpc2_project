@@ -15,6 +15,7 @@ from aux_functions import angle_to_2d,is_accurate
 class BaseGazeEstimationModel(nn.Module):
     """Clase base para los modelos de estimación de mirada."""
     ACCURACY_TOLERANCE = 15
+    VAL_LOSS_TOLERANCE = 3 #Tolera hasta 3 epochs sin que el loss haya disminuido
     dynamic_lr = False
     lr_epochs_adjustment = 20
     lr_adjustment_ratio = 0.1
@@ -27,6 +28,8 @@ class BaseGazeEstimationModel(nn.Module):
         self.timed_name = f"{name}_{self.get_current_time_str()}"
         self.writer =  SummaryWriter(log_dir=f"tensorboard/{self.timed_name}")
         self.model_weights_path = f"./modelos/{name}.pth"
+        self.minimum_val_loss = 1e10 #Grande a propósito, para que el primer valor de loss sea el minimo
+        self.not_minimum_count = 0
 
 
     def get_current_time_str(self):
@@ -103,9 +106,18 @@ class BaseGazeEstimationModel(nn.Module):
                     if len(self.epoch_val_loss) == 0:
                         torch.save(self.state_dict(), self.model_weights_path)
                     else:
-                        if val_loss < self.epoch_val_loss[-1]:
+                        if val_loss < self.minimum_val_loss:
+                            self.minimum_val_loss = val_loss
+                            self.not_minimum_count = 0
                             torch.save(self.state_dict(), self.model_weights_path)
                             print(f"Nuevo mínimo de loss encontrado! Guardando modelo en {self.model_weights_path}")
+                        else:
+                            self.not_minimum_count += 1
+                            if self.not_minimum_count >= self.VAL_LOSS_TOLERANCE:
+                                print(f"Se interrimpió el entrenamiento porque en los últimos {self.VAL_LOSS_TOLERANCE} epochs\
+                                       no se logró menor loss que el mínimo (min:{self.minimum_val_loss})")
+                                break
+
 
                 self.epoch_val_loss.append(val_loss)
                 self.epoch_val_accuracy.append(val_accuracy)
@@ -271,7 +283,7 @@ class CNN_custom(BaseGazeEstimationModel):
     img_size = 224 # Para que sea compatible con las resnet
 
     # Capas de convolución
-    self.conv1 = self.conv_block(in_channels, 16, k=5) #Primer capa con kernel fijo para capturar detalles de la imagen
+    self.conv1 = self.conv_block(in_channels, 16, k=1) #Primer capa con kernel fijo para capturar detalles de la imagen
     self.conv1_out = None
     self.conv2 = self.conv_block(16, 32, k=kernel_size)
     self.conv2_out = None
