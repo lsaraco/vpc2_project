@@ -182,7 +182,6 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
         # Se modificará la última capa fully connected
         num_ftrs = self.resnet18.fc.in_features
         
-        #self.resnet18.fc = nn.Linear(num_ftrs, 2)  # Output layer for regression (pitch, yaw)
         # Se agregan dos capas fc más antes de la salida de (pitch, yaw)
         self.resnet18.fc = nn.Sequential(
             nn.Linear(num_ftrs, 256),
@@ -210,28 +209,96 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
 
 class GazeEstimation_ResNet34(BaseGazeEstimationModel):
 
-    def __init__(self,pretrained=True):
-        super().__init__()
+    def __init__(self,name="GazeEstimation_ResNet34", pretrained=True, debug=False):
+        super().__init__(name=name)
 
         # Configuración de parámetros respecto al modelo base
         self.dynamic_lr = True
 
-        # Partimos de una resnet18 pre entrenada
+        # Partimos de una resnet34 pre entrenada
         self.resnet34 = models.resnet34(weights=models.ResNet34_Weights.DEFAULT) if pretrained else models.resnet34
         
-        # Se congelan todos los parámetros de las primeras capas para que no sean entrenables
-        for param in self.resnet34.parameters():
-            param.requires_grad = False
-        
-        # Se modifica únicamente la últica capa fc
+        # Se congelan todos los parámetros de las primeras capas ya que a pesar de la diferencia entre
+        # ImageNet y este dataset se supone que las primeras capas capturan rasgos generales como bordes
+        # Capas a congelar: initial layer y layer1
+        for name, param in self.resnet34.named_parameters():
+             if "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
+                param.requires_grad = False
+
+        # Se modificará la última capa fully connected
         num_ftrs = self.resnet34.fc.in_features
-        self.resnet34.fc = nn.Linear(num_ftrs, 2)  # Output 2 values
+
+
+        # Se agregan dos capas fc más antes de la salida de (pitch, yaw)
+        self.resnet34.fc = nn.Sequential(
+            nn.Linear(num_ftrs, 256),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),             
+            nn.Linear(256, 64), 
+            nn.ReLU(),
+            nn.Linear(64,2)     
+        )
 
         # Y se la hace entrenable
         for param in self.resnet34.fc.parameters():
             param.requires_grad = True
-            
+
+        # Verificar qué capas quedaron entrenables y cuáles no
+        if debug:
+            for name, param in self.named_parameters():
+                print(f"{name}: {'Entrenable' if param.requires_grad else 'No entrenable'}")
 
     def forward(self, x):
         return self.resnet34(x)
+    
+
+class CNN_custom(BaseGazeEstimationModel):
+  
+  def conv_block(self,c_in, c_out, k=3, p='same', s=1, pk=3, ps=2, pp=1):
+    return torch.nn.Sequential(                               # el módulo Sequential se encarga de hacer el forward de todo lo que tiene dentro.
+        torch.nn.Conv2d(c_in, c_out, k, padding=p, stride=s), # conv
+        torch.nn.BatchNorm2d(c_out),
+        torch.nn.ReLU(),                                      # activation
+        torch.nn.MaxPool2d(pk, stride=ps, padding=pp)         # pooling
+    )
+  
+  def __init__(self,name="CNN_propia"):
+    super().__init__(name=name)
+
+    # Configuraciones
+    kernel_size = 3
+    in_channels = 3
+    img_size = 224 # Para que sea compatible con las resnet
+
+    # Capas de convolución
+    self.conv1 = self.conv_block(in_channels, 16, k=5) #Primer capa con kernel fijo para capturar detalles de la imagen
+    self.conv1_out = None
+    self.conv2 = self.conv_block(16, 32, k=kernel_size)
+    self.conv2_out = None
+    self.drop_cnn = torch.nn.Dropout2d(p=0.5, inplace=False)
+    self.conv3 = self.conv_block(32, 64, k=kernel_size)
+    self.conv3_out = None
+    self.conv4 = self.conv_block(64, 128, k=kernel_size)
+    self.conv4_out = None
+    # Parámetros para calcular automaticamente dimensones de input de la fully connected.
+    # Por cómo está hecho conv_block, se conservan las dimensiones de la imágen luego de la capa de convolución pero
+    # debido a la capa de max pooling la salida tiene ancho y altura reducidos a la mitad.
+    qty_of_conv_blocks = 4
+    final_cnn_out_channels = 128
+    dim_fc_1 = int((img_size/(2**qty_of_conv_blocks))*(img_size/(2**qty_of_conv_blocks))*final_cnn_out_channels)
+    # Capas fully-connected
+    self.fc1 = torch.nn.Linear(dim_fc_1, 32)
+    self.drop_fc = torch.nn.Dropout(p=0.4, inplace=False)
+    self.fc2 = torch.nn.Linear(32, 2)
+
+  def forward(self, x):
+    self.conv1_out = self.conv1(x)
+    self.conv2_out = self.drop_cnn(self.conv2(self.conv1_out))
+    self.conv3_out = self.drop_cnn(self.conv3(self.conv2_out))
+    self.conv4_out = self.conv4(self.conv3_out)
+    y = self.conv4_out.view(self.conv4_out.shape[0], -1)
+    y = self.fc1(y)
+    y= self.drop_fc(y)
+    y = self.fc2(y)
+    return y
 

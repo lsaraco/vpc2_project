@@ -3,6 +3,7 @@ torchvision
 torchsummary
 tensorboard
 pandas
+seaborn
 numpy
 pickle
 h5py
