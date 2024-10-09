@@ -239,7 +239,7 @@ class GazeEstimation_ResNet34(BaseGazeEstimationModel):
         # ImageNet y este dataset se supone que las primeras capas capturan rasgos generales como bordes
         # Capas a congelar: initial layer y layer1
         for name, param in self.resnet34.named_parameters():
-             if "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
+            if "layer1" not in name and "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
                 param.requires_grad = False
 
         # Se modificará la última capa fully connected
