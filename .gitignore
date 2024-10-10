@@ -2,8 +2,8 @@ pytorch_mpiigaze
 MPIIGaze
 Gaze360
 datasets/MPIIFaceGaze.h5
+datasets/MPIIFaceGazeReduced.h5
 .venv
-tensorboard
 runs
 __pycache__
 

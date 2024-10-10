@@ -9,7 +9,7 @@ from torchvision import models
 from tqdm import tqdm
 from datetime import datetime
 from aux_functions import angle_to_2d,is_accurate
-
+import os
 
 
 class BaseGazeEstimationModel(nn.Module):
@@ -22,13 +22,23 @@ class BaseGazeEstimationModel(nn.Module):
     minimum_lr = 1e-6
     
 
-    def __init__(self,name="Base"):
+    def __init__(self, name="Base", base_dir=None):
         super().__init__()
         self.epoch_train_loss = []
         self.epoch_val_loss = []
         self.timed_name = f"{name}_{self.get_current_time_str()}"
-        self.writer =  SummaryWriter(log_dir=f"tensorboard/{self.timed_name}")
-        self.model_weights_path = f"./modelos/{name}.pth"
+
+       
+        weights_path = f"./modelos/{name}.pth"
+        log_dir_path = f"tensorboard/{self.timed_name}"
+
+        if base_dir:
+            weights_path = os.path.join(base_dir, f'modelos/{name}.pth')
+            log_dir_path = os.path.join(base_dir, f"tensorboard/{self.timed_name}")
+
+        self.writer =  SummaryWriter(log_dir=log_dir_path)
+        self.model_weights_path = weights_path
+        
         self.minimum_val_loss = 1e10 #Grande a propósito, para que el primer valor de loss sea el minimo
         self.not_minimum_count = 0
         self.early_stop = False
@@ -180,8 +190,8 @@ class BaseGazeEstimationModel(nn.Module):
 
 class GazeEstimation_ResNet18(BaseGazeEstimationModel):
 
-    def __init__(self,name="GazeEstimation_ResNet18", pretrained=True, debug=False):
-        super().__init__(name=name)
+    def __init__(self,name="GazeEstimation_ResNet18", base_dir=None, pretrained=True, debug=False):
+        super().__init__(name=name, base_dir=base_dir)
 
         # Configuración de parámetros respecto al modelo base
         self.dynamic_lr = True
@@ -226,8 +236,8 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
 
 class GazeEstimation_ResNet34(BaseGazeEstimationModel):
 
-    def __init__(self,name="GazeEstimation_ResNet34", pretrained=True, debug=False):
-        super().__init__(name=name)
+    def __init__(self,name="GazeEstimation_ResNet34", base_dir=None,pretrained=True, debug=False):
+        super().__init__(name=name, base_dir=base_dir)
 
         # Configuración de parámetros respecto al modelo base
         self.dynamic_lr = True
@@ -319,3 +329,119 @@ class CNN_custom(BaseGazeEstimationModel):
     y = self.fc2(y)
     return y
 
+
+
+class GazeEstimation_MobileNet(BaseGazeEstimationModel):
+    def __init__(self, name="MobileNet", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_brach_fc=50):
+        super().__init__(name=name, base_dir=base_dir)
+
+        # Cargo MobileNetV2 preentrenado (si es que asi lo indico)
+        self.mobilenet = models.mobilenet_v2(pretrained=pretrained)
+
+
+        # Hago que las primeras capas no se entrenen para utilizarlas como feature extractor
+        for name, param in self.mobilenet.named_parameters():
+            
+            if any(prefix in name for prefix in ["features.0.", "features.1.", "features.2.", "features.3.", "features.4.", "features.5.", "features.6.", "features.7.", "features.8.", "features.9.", "features.10."]):
+                param.requires_grad = False
+
+
+        # Elimino la capa classifier de MobileNetV2
+        self.mobilenet.classifier = nn.Identity()
+
+        # Determino la cantidad de neuronas de la ultima capa
+        self.num_features = self.mobilenet.last_channel
+
+        # Agrego una capa fully connected al final
+        self.fc = nn.Linear(self.num_features, n_last_fc)
+        self.relu = nn.ReLU()
+        self.drop = nn.Dropout(p=0.2, inplace=False)
+
+        # Branch pitch
+        self.fc_pitch = nn.Linear(n_last_fc, n_brach_fc)
+        self.pitch_out = nn.Linear(n_brach_fc, 1)
+
+        # Branch yaw
+        self.fc_yaw = nn.Linear(n_last_fc, n_brach_fc)
+        self.yaw_out = nn.Linear(n_brach_fc, 1)
+
+        # Veo que capas quedaron entrenables y que no 
+        if debug:
+            for name, param in self.named_parameters():
+                print(f"{name}: {'Entrenable' if param.requires_grad else 'No entrenable'}")
+
+
+    def forward(self, x):
+        
+        x = self.mobilenet(x)
+        x = self.drop(self.relu(self.fc(x)))
+
+        # Branch pitch
+        x_pitch = self.relu(self.fc_pitch(x))
+        x_pitch = self.pitch_out(x_pitch)
+
+        # Branch yaw
+        x_yaw = self.relu(self.fc_yaw(x))
+        x_yaw = self.yaw_out(x_yaw)
+
+        # Concateno la salida [batch_size, 2]
+        output = torch.cat((x_pitch, x_yaw), dim=1)
+
+        return output
+
+
+class GazeEstimation_ResNet18Branch(BaseGazeEstimationModel):
+    def __init__(self, name="ResNet18", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_brach_fc=50):
+        super().__init__(name=name, base_dir=base_dir)
+
+        # Cargo ResNet18 preentrenado
+        self.resnet = models.resnet18(pretrained=pretrained)
+        #self.resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT) if pretrained else models.resnet18
+
+        # Capas a congelar: initial layer y layer1
+        for name, param in self.resnet.named_parameters():
+             if "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
+                param.requires_grad = False
+
+        # Elimino la capa fully connected de ResNet18
+        self.resnet.fc = nn.Identity()
+
+        # Determino la cantidad de neuronas de la ultima capa (512 para ResNet18)
+        self.num_features = self.resnet.fc.in_features if hasattr(self.resnet.fc, 'in_features') else 512
+
+        # Agrego una capa fully connected despues de ResNet
+        self.fc = nn.Linear(self.num_features, n_last_fc)
+        self.relu = nn.ReLU()
+        self.drop = nn.Dropout(p=0.2, inplace=False)
+
+        # Branch pitch
+        self.fc_pitch = nn.Linear(n_last_fc, n_brach_fc)
+        self.pitch_out = nn.Linear(n_brach_fc, 1)
+
+        # Branch yaw
+        self.fc_yaw = nn.Linear(n_last_fc, n_brach_fc)
+        self.yaw_out = nn.Linear(n_brach_fc, 1)
+
+         # Veo que capas quedaron entrenables y que no 
+        if debug:
+            for name, param in self.named_parameters():
+                print(f"{name}: {'Entrenable' if param.requires_grad else 'No entrenable'}")
+
+
+    def forward(self, x):
+        
+        x = self.resnet(x)
+        x = self.drop(self.relu(self.fc(x)))
+
+        # Branch pitch
+        x_pitch = self.relu(self.fc_pitch(x))
+        x_pitch = self.pitch_out(x_pitch)
+
+        # Branch yaw
+        x_yaw = self.relu(self.fc_yaw(x))
+        x_yaw = self.yaw_out(x_yaw)
+
+        # Concateno la salida [batch_size, 2]
+        output = torch.cat((x_pitch, x_yaw), dim=1)
+
+        return output
