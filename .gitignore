@@ -3,7 +3,6 @@ MPIIGaze
 Gaze360
 datasets/MPIIFaceGaze.h5
 .venv
-tensorboard
 runs
 __pycache__
 

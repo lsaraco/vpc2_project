@@ -126,7 +126,7 @@ def plot_metrics(model,title=None):
 
     # Zoom en curvas de loss, se evitan los primeros 'start_val' valores 
     # que tienen loss muy alto y no dejan ver bien el resto
-    start_val = 2
+    start_val = 6
     if len(model.epoch_val_loss) > start_val:
         ax1.set_xlim([start_val,len(model.epoch_val_loss)])
         ax1.set_ylim([min(model.epoch_val_loss[start_val:]+model.epoch_train_loss[start_val:])*0.9,

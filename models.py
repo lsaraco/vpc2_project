@@ -198,20 +198,28 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
 
         # Se modificará la última capa fully connected
         num_ftrs = self.resnet18.fc.in_features
-        
-        # Se agregan dos capas fc más antes de la salida de (pitch, yaw)
-        self.resnet18.fc = nn.Sequential(
-            nn.Linear(num_ftrs, 256),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),             
-            nn.Linear(256, 64), 
-            nn.ReLU(),
-            nn.Linear(64,2)     
-        )
 
-        # Y se la hace entrenable
-        for param in self.resnet18.fc.parameters():
-            param.requires_grad = True
+        # Se reemplaza la capa fc ya existente en resnet18 por la identidad, para que no afecte a lo que viene de las capas anteriores
+        self.resnet18.fc = nn.Identity()  # Set it to an identity layer, so we can use its output directly
+
+        self.drop1 = nn.Dropout(p=0.1)
+        self.drop2 = nn.Dropout(p=0.1)
+        self.fc_pitch = nn.Linear(num_ftrs, 1)
+        self.fc_yaw = nn.Linear(num_ftrs, 1)
+        
+        # # Se agregan dos capas fc más antes de la salida de (pitch, yaw)
+        # self.resnet18.fc = nn.Sequential(
+        #     nn.Linear(num_ftrs, 256),
+        #     nn.ReLU(),
+        #     nn.Dropout(p=0.2),             
+        #     nn.Linear(256, 64), 
+        #     nn.ReLU(),
+        #     nn.Linear(64,2)     
+        # )
+
+        # # Y se la hace entrenable
+        # for param in self.resnet18.fc.parameters():
+        #     param.requires_grad = True
 
         # Verificar qué capas quedaron entrenables y cuáles no
         if debug:
@@ -221,7 +229,16 @@ class GazeEstimation_ResNet18(BaseGazeEstimationModel):
 
 
     def forward(self, x):
-        return self.resnet18(x)
+        features = self.resnet18(x)
+        
+        # Los features se pasan a dos capas FC distintas, una para pitch y otra para yaw
+        pitch = self.fc_pitch(self.drop1(features))
+        yaw = self.fc_yaw(self.drop2(features)) 
+        
+        # Se concatenan las salidas para poder usar la misma función de Loss en todos los modelos
+        output = torch.cat((pitch, yaw), dim=1)
+        
+        return output  # Un unico tensor con dos salidas [pitch,yaw]
     
 
 class GazeEstimation_ResNet34(BaseGazeEstimationModel):
@@ -238,9 +255,9 @@ class GazeEstimation_ResNet34(BaseGazeEstimationModel):
         # Se congelan todos los parámetros de las primeras capas ya que a pesar de la diferencia entre
         # ImageNet y este dataset se supone que las primeras capas capturan rasgos generales como bordes
         # Capas a congelar: initial layer y layer1
-        for name, param in self.resnet34.named_parameters():
-            if "layer1" not in name and "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
-                param.requires_grad = False
+        # for name, param in self.resnet34.named_parameters():
+        #     if "layer1" not in name and "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
+        #         param.requires_grad = False
 
         # Se modificará la última capa fully connected
         num_ftrs = self.resnet34.fc.in_features
@@ -257,8 +274,8 @@ class GazeEstimation_ResNet34(BaseGazeEstimationModel):
         )
 
         # Y se la hace entrenable
-        for param in self.resnet34.fc.parameters():
-            param.requires_grad = True
+        # for param in self.resnet34.fc.parameters():
+        #     param.requires_grad = True
 
         # Verificar qué capas quedaron entrenables y cuáles no
         if debug:
@@ -288,11 +305,11 @@ class CNN_custom(BaseGazeEstimationModel):
     img_size = 224 # Para que sea compatible con las resnet
 
     # Capas de convolución
-    self.conv1 = self.conv_block(in_channels, 16, k=5) #Primer capa con kernel fijo para capturar detalles de la imagen
+    self.conv1 = self.conv_block(in_channels, 16, k=3) #Primer capa con kernel fijo para capturar detalles de la imagen
     self.conv1_out = None
     self.conv2 = self.conv_block(16, 32, k=kernel_size)
     self.conv2_out = None
-    self.drop_cnn = torch.nn.Dropout2d(p=0.3, inplace=False)
+    self.drop_cnn = torch.nn.Dropout2d(p=0.1, inplace=False)
     self.conv3 = self.conv_block(32, 64, k=kernel_size)
     self.conv3_out = None
     self.conv4 = self.conv_block(64, 128, k=kernel_size)
@@ -304,9 +321,10 @@ class CNN_custom(BaseGazeEstimationModel):
     final_cnn_out_channels = 128
     dim_fc_1 = int((img_size/(2**qty_of_conv_blocks))*(img_size/(2**qty_of_conv_blocks))*final_cnn_out_channels)
     # Capas fully-connected
-    self.fc1 = torch.nn.Linear(dim_fc_1, 32)
-    self.drop_fc = torch.nn.Dropout(p=0.4, inplace=False)
-    self.fc2 = torch.nn.Linear(32, 2)
+    self.fc1 = torch.nn.Linear(dim_fc_1, 64)
+    self.drop_fc = torch.nn.Dropout(p=0.1, inplace=False)
+    self.fc_pitch = torch.nn.Linear(64, 1)
+    self.fc_yaw =  torch.nn.Linear(64, 1)
 
   def forward(self, x):
     self.conv1_out = self.conv1(x)
@@ -315,7 +333,10 @@ class CNN_custom(BaseGazeEstimationModel):
     self.conv4_out = self.conv4(self.conv3_out)
     y = self.conv4_out.view(self.conv4_out.shape[0], -1)
     y = self.fc1(y)
-    y= self.drop_fc(y)
-    y = self.fc2(y)
-    return y
+    y = self.drop_fc(y)
+
+    pitch = self.fc_pitch(y)
+    yaw = self.fc_yaw(y)
+
+    return torch.cat((pitch,yaw),dim=1)
 
