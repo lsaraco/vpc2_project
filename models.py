@@ -391,7 +391,7 @@ class GazeEstimation_MobileNet(BaseGazeEstimationModel):
 
 
 class GazeEstimation_ResNet18Branch(BaseGazeEstimationModel):
-    def __init__(self, name="ResNet18", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_brach_fc=50):
+    def __init__(self, name="ResNet18", base_dir=None, pretrained=True, debug=False, trainable=False, n_last_fc=200, n_brach_fc=50):
         super().__init__(name=name, base_dir=base_dir)
 
         # Cargo ResNet18 preentrenado
@@ -399,9 +399,10 @@ class GazeEstimation_ResNet18Branch(BaseGazeEstimationModel):
         #self.resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT) if pretrained else models.resnet18
 
         # Capas a congelar: initial layer y layer1
-        for name, param in self.resnet.named_parameters():
-             if "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
-                param.requires_grad = False
+        if not trainable:
+            for name, param in self.resnet.named_parameters():
+                 if "layer2" not in name and "layer3" not in name and "layer4" not in name and "fc" not in name:
+                    param.requires_grad = False
 
         # Elimino la capa fully connected de ResNet18
         self.resnet.fc = nn.Identity()

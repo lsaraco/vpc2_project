@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import random
 
 def rgb(img):
     """Convierte imagenes de BGR a RGB, para poder ser mostradas en un notebook."""
@@ -144,3 +145,20 @@ def plot_metrics(model,title=None):
     # Muestro los plots
     plt.tight_layout()
     plt.show()
+
+
+# Obtengo combinaciones aleatorias de los valores definidos en el diccionario de parametros
+def getRandomHyperparam(n, parameters, seed=None):
+    
+    if seed is not None:
+        random.seed(seed)
+    
+    keys = list(parameters.keys())
+
+    combinaciones = []
+    for i in range(n):
+        
+        combinacion = {key: random.choice(parameters[key]) for key in keys}
+        combinaciones.append(combinacion)
+    
+    return combinaciones
