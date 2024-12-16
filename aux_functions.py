@@ -3,11 +3,53 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import math
+import os
+import logging
 
 def rgb(img):
     """Convierte imagenes de BGR a RGB, para poder ser mostradas en un notebook."""
     return cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
 
+# Function to reverse the normalization
+def inverse_normalize(tensor, mean, std):
+    mean = mean[:, None, None]  # Reshape for broadcasting
+    std = std[:, None, None]
+    tensor = tensor * std + mean  # Denormalize
+    return tensor
+
+def draw_gaze360_arrow(img, eye_gaze_2d, eye_position, scale=10,color=(0,255,0)):
+    """
+    Draw an arrow on the image pointing in the direction of eye gaze.
+
+    Parameters:
+    - img: The image (RGB format) on which to draw.
+    - eye_gaze_2d: A 2D tensor containing pitch (vertical angle) and yaw (horizontal angle).
+    - eye_position: A tuple (x, y) representing the position of the eye in the image (where the arrow starts).
+    - scale: A scaling factor to control the length of the arrow.
+    """
+    # Extract yaw and pitch from the 2D tensor
+    yaw = eye_gaze_2d[0].item()  # Horizontal angle (theta)
+    pitch = eye_gaze_2d[1].item()  # Vertical angle (phi)
+
+    # Project the 2D gaze direction to x and y components on the image
+    x_2d = math.cos(pitch) * math.sin(yaw)  # Horizontal direction
+    y_2d = math.sin(pitch)  # Vertical direction
+
+    if eye_position=="center":
+        width,height,_ = img.shape
+        eye_position = [int(width/2),int(height/2)]
+
+    # Compute the end point of the arrow, scaled by the 'scale' factor
+    end_point = (
+        int(eye_position[0] - x_2d * scale),
+        int(eye_position[1] - y_2d * scale)  # Negative because the y-axis is inverted in image coordinates
+    )
+    
+    # Draw the arrow on the image
+    img_annotated = cv2.arrowedLine(img.copy(), eye_position, end_point, color, 1, tipLength=0.3)
+
+    return img_annotated
 
 def put_gaze_annotation(img,gaze,method="ALL",color=None,label=None,label_y=10):
     """Agrega una flecha sobre la imagen apuntando en la dirección de la mirada."""
@@ -162,3 +204,76 @@ def getRandomHyperparam(n, parameters, seed=None):
         combinaciones.append(combinacion)
     
     return combinaciones
+
+
+# Set environment variable to suppress logs when using mediapipe
+os.environ["GLOG_minloglevel"] = "2"  # 0 = INFO, 1 = WARNING, 2 = ERROR, 3 = FATAL
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # TensorFlow logging level (if used)
+os.environ["LIBGL_DEBUG"] = "quiet"
+logging.getLogger("mediapipe").setLevel(logging.ERROR)
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
+
+import mediapipe as mp
+
+# Initialize Mediapipe FaceMesh
+mp_face_mesh = mp.solutions.face_mesh
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+def get_bounding_box_from_landmarks(landmarks, image_width, image_height):
+    # Extract X and Y coordinates of landmarks
+    x_coords = [int(landmark.x * image_width) for landmark in landmarks]
+    y_coords = [int(landmark.y * image_height) for landmark in landmarks]
+
+    # Calculate bounding box
+    x_min, x_max = min(x_coords), max(x_coords)
+    y_min, y_max = min(y_coords), max(y_coords)
+
+    return x_min, y_min, x_max, y_max
+
+def detect_face_bounding_box_from_array(image):
+    """
+    Detects the bounding box of the head from an input image as a NumPy array.
+    Args:
+        image: Input image as a NumPy array (H x W x 3)
+    """
+
+
+    mp_face_mesh = mp.solutions.face_mesh
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+
+    image_height, image_width, _ = image.shape
+
+    # Convert to RGB if necessary
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    with mp_face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5
+    ) as face_mesh:
+
+        # Process the image
+        results = face_mesh.process(rgb_image)
+
+        if not results.multi_face_landmarks:
+            print("No face detected.")
+            return None
+
+        for face_landmarks in results.multi_face_landmarks:
+            # Calculate bounding box
+            bbox = get_bounding_box_from_landmarks(face_landmarks.landmark, image_width, image_height)
+            x_min, y_min, x_max, y_max = bbox
+
+            # Ensure bounding box is within image dimensions
+            x_min = max(0, x_min)
+            y_min = max(0, y_min)
+            x_max = min(image_width, x_max)
+            y_max = min(image_height, y_max)
+
+            # Crop the face region
+            face_image = image[y_min:y_max, x_min:x_max]
+
+            return face_image

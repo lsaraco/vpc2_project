@@ -14,7 +14,7 @@ import os
 
 class BaseGazeEstimationModel(nn.Module):
     """Clase base para los modelos de estimación de mirada."""
-    ACCURACY_TOLERANCE = 15
+    ACCURACY_TOLERANCE = 20
     VAL_LOSS_TOLERANCE = 6 #Tolera hasta 6 epochs sin que el loss haya disminuido
     dynamic_lr = False
     lr_epochs_adjustment = 20
@@ -331,19 +331,20 @@ class CNN_custom(BaseGazeEstimationModel):
 
 
 
+
 class GazeEstimation_MobileNet(BaseGazeEstimationModel):
-    def __init__(self, name="MobileNet", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_brach_fc=50):
+    def __init__(self, name="MobileNet", base_dir=None, pretrained=True, debug=False, n_last_fc=128, n_branch_fc=32):
         super().__init__(name=name, base_dir=base_dir)
 
         # Cargo MobileNetV2 preentrenado (si es que asi lo indico)
-        self.mobilenet = models.mobilenet_v2(pretrained=pretrained)
+        self.mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+
 
 
         # Hago que las primeras capas no se entrenen para utilizarlas como feature extractor
-        for name, param in self.mobilenet.named_parameters():
-            
-            if any(prefix in name for prefix in ["features.0.", "features.1.", "features.2.", "features.3.", "features.4.", "features.5.", "features.6.", "features.7.", "features.8.", "features.9.", "features.10."]):
-                param.requires_grad = False
+        # for name, param in self.mobilenet.named_parameters():            
+        #     if any(prefix in name for prefix in ["features.0.", "features.1.", "features.2.", "features.3.", "features.4.", "features.5.", "features.6.", "features.7.", "features.8.", "features.9.", "features.10."]):
+        #         param.requires_grad = False
 
 
         # Elimino la capa classifier de MobileNetV2
@@ -355,7 +356,66 @@ class GazeEstimation_MobileNet(BaseGazeEstimationModel):
         # Agrego una capa fully connected al final
         self.fc = nn.Linear(self.num_features, n_last_fc)
         self.relu = nn.ReLU()
-        self.drop = nn.Dropout(p=0.2, inplace=False)
+        self.drop = nn.Dropout(p=0.15, inplace=False)
+
+        # Branch pitch
+        self.fc_pitch = nn.Linear(n_last_fc, n_branch_fc)
+        self.pitch_out = nn.Linear(n_branch_fc, 1)
+
+        # Branch yaw
+        self.fc_yaw = nn.Linear(n_last_fc, n_branch_fc)
+        self.yaw_out = nn.Linear(n_branch_fc, 1)
+
+        # Veo que capas quedaron entrenables y que no 
+        if debug:
+            for name, param in self.named_parameters():
+                print(f"{name}: {'Entrenable' if param.requires_grad else 'No entrenable'}")
+
+
+    def forward(self, x):
+        
+        x = self.mobilenet(x)
+        x = self.drop(self.relu(self.fc(x)))
+
+        # Branch pitch
+        x_pitch = self.relu(self.fc_pitch(x))
+        x_pitch = self.pitch_out(x_pitch)
+
+        # Branch yaw
+        x_yaw = self.relu(self.fc_yaw(x))
+        x_yaw = self.yaw_out(x_yaw)
+
+        # Concateno la salida [batch_size, 2]
+        output = torch.cat((x_pitch, x_yaw), dim=1)
+
+        return output
+
+class GazeEstimation_MobileOne(BaseGazeEstimationModel):
+    """Model using MobileOne."""
+    def __init__(self, name="MobileNet", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_brach_fc=50):
+        super().__init__(name=name, base_dir=base_dir)
+
+        # Cargo MobileNetV2 preentrenado (si es que asi lo indico)
+        self.mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+
+
+
+        # Hago que las primeras capas no se entrenen para utilizarlas como feature extractor
+        # for name, param in self.mobilenet.named_parameters():            
+        #     if any(prefix in name for prefix in ["features.0.", "features.1.", "features.2.", "features.3.", "features.4.", "features.5.", "features.6.", "features.7.", "features.8.", "features.9.", "features.10."]):
+        #         param.requires_grad = False
+
+
+        # Elimino la capa classifier de MobileNetV2
+        self.mobilenet.classifier = nn.Identity()
+
+        # Determino la cantidad de neuronas de la ultima capa
+        self.num_features = self.mobilenet.last_channel
+
+        # Agrego una capa fully connected al final
+        self.fc = nn.Linear(self.num_features, n_last_fc)
+        self.relu = nn.ReLU()
+        self.drop = nn.Dropout(p=0.15, inplace=False)
 
         # Branch pitch
         self.fc_pitch = nn.Linear(n_last_fc, n_brach_fc)
