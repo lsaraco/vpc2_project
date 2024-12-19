@@ -3,7 +3,7 @@
 from torch.utils.data import Dataset
 from pathlib import Path
 from PIL import Image
-from aux_functions import detect_face_bounding_box_from_array
+from aux_functions import detect_face_bounding_box_from_array,detect_eyes_region_from_array
 import torch
 import numpy as np
 import h5py
@@ -62,7 +62,8 @@ class Gaze360Dataset(Dataset):
             if self.is_angle_within_limits(eye_gaze_2d,yaw_limits[0],yaw_limits[1],"yaw"):
                 # If face_only is True, get only face part of the image
                 if face_only:
-                    img = detect_face_bounding_box_from_array(image_np)
+                    # img = detect_face_bounding_box_from_array(image_np)
+                    img = detect_eyes_region_from_array(image_np)
                     if img is None: #Discard images where face was not detected
                         continue
                 else:

@@ -37,8 +37,9 @@ def draw_gaze360_arrow(img, eye_gaze_2d, eye_position, scale=10,color=(0,255,0))
     y_2d = math.sin(pitch)  # Vertical direction
 
     if eye_position=="center":
-        width,height,_ = img.shape
+        height,width,_ = img.shape
         eye_position = [int(width/2),int(height/2)]
+
 
     # Compute the end point of the arrow, scaled by the 'scale' factor
     end_point = (
@@ -240,13 +241,9 @@ def detect_face_bounding_box_from_array(image):
 
 
     mp_face_mesh = mp.solutions.face_mesh
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
 
     image_height, image_width, _ = image.shape
 
-    # Convert to RGB if necessary
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     with mp_face_mesh.FaceMesh(
         static_image_mode=True,
@@ -256,7 +253,7 @@ def detect_face_bounding_box_from_array(image):
     ) as face_mesh:
 
         # Process the image
-        results = face_mesh.process(rgb_image)
+        results = face_mesh.process(image)
 
         if not results.multi_face_landmarks:
             print("No face detected.")
@@ -277,3 +274,60 @@ def detect_face_bounding_box_from_array(image):
             face_image = image[y_min:y_max, x_min:x_max]
 
             return face_image
+        
+def detect_eyes_region_from_array(image):
+    """
+    Detects the bounding box of the eyes region (with a +-5px height margin) from an input image as a NumPy array.
+    Args:
+        image: Input image as a NumPy array (H x W x 3)
+
+    Returns:
+        The cropped eyes region as a NumPy array or None if no face is detected.
+    """
+    mp_face_mesh = mp.solutions.face_mesh
+
+    # Get the dimensions of the input image
+    image_height, image_width, _ = image.shape
+
+    with mp_face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5
+    ) as face_mesh:
+
+        # Process the image
+        results = face_mesh.process(image)
+
+        if not results.multi_face_landmarks:
+            print("No face detected.")
+            return None
+
+        for face_landmarks in results.multi_face_landmarks:
+            # Get the coordinates of eye landmarks
+            left_eye_indices = [33, 160, 159, 158, 157, 173]  # Example indices for the left eye
+            right_eye_indices = [362, 385, 386, 387, 388, 466]  # Example indices for the right eye
+
+            # Extract landmark coordinates and scale to image dimensions
+            left_eye_points = [(int(landmark.x * image_width), int(landmark.y * image_height)) for i, landmark in enumerate(face_landmarks.landmark) if i in left_eye_indices]
+            right_eye_points = [(int(landmark.x * image_width), int(landmark.y * image_height)) for i, landmark in enumerate(face_landmarks.landmark) if i in right_eye_indices]
+
+            # Combine all eye points to create a bounding box
+            all_eye_points = np.array(left_eye_points + right_eye_points)
+            x_min = np.min(all_eye_points[:, 0])
+            y_min = np.min(all_eye_points[:, 1])
+            x_max = np.max(all_eye_points[:, 0])
+            y_max = np.max(all_eye_points[:, 1])
+
+            # Add a +-5px margin to the height and width
+            y_min = max(0, y_min - 5)
+            y_max = min(image_height, y_max + 5)
+            x_min = max(0, x_min - 5)
+            x_max = min(image_width, x_max + 5)
+
+            # Crop the eyes region
+            eyes_region = image[y_min:y_max, x_min:x_max]
+
+            return eyes_region
+
+    return None

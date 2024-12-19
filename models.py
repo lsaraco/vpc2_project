@@ -392,7 +392,7 @@ class GazeEstimation_MobileNet(BaseGazeEstimationModel):
 
 class GazeEstimation_MobileOne(BaseGazeEstimationModel):
     """Model using MobileOne."""
-    def __init__(self, name="MobileNet", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_brach_fc=50):
+    def __init__(self, name="MobileNet", base_dir=None, pretrained=True, debug=False, n_last_fc=200, n_branch_fc=50):
         super().__init__(name=name, base_dir=base_dir)
 
         # Cargo MobileNetV2 preentrenado (si es que asi lo indico)
@@ -418,12 +418,12 @@ class GazeEstimation_MobileOne(BaseGazeEstimationModel):
         self.drop = nn.Dropout(p=0.15, inplace=False)
 
         # Branch pitch
-        self.fc_pitch = nn.Linear(n_last_fc, n_brach_fc)
-        self.pitch_out = nn.Linear(n_brach_fc, 1)
+        self.fc_pitch = nn.Linear(n_last_fc, n_branch_fc)
+        self.pitch_out = nn.Linear(n_branch_fc, 1)
 
         # Branch yaw
-        self.fc_yaw = nn.Linear(n_last_fc, n_brach_fc)
-        self.yaw_out = nn.Linear(n_brach_fc, 1)
+        self.fc_yaw = nn.Linear(n_last_fc, n_branch_fc)
+        self.yaw_out = nn.Linear(n_branch_fc, 1)
 
         # Veo que capas quedaron entrenables y que no 
         if debug:
@@ -451,7 +451,7 @@ class GazeEstimation_MobileOne(BaseGazeEstimationModel):
 
 
 class GazeEstimation_ResNet18Branch(BaseGazeEstimationModel):
-    def __init__(self, name="ResNet18", base_dir=None, pretrained=True, debug=False, trainable=False, n_last_fc=200, n_brach_fc=50):
+    def __init__(self, name="ResNet18", base_dir=None, pretrained=True, debug=False, trainable=False, n_last_fc=200, n_branch_fc=50):
         super().__init__(name=name, base_dir=base_dir)
 
         # Cargo ResNet18 preentrenado
@@ -473,15 +473,15 @@ class GazeEstimation_ResNet18Branch(BaseGazeEstimationModel):
         # Agrego una capa fully connected despues de ResNet
         self.fc = nn.Linear(self.num_features, n_last_fc)
         self.relu = nn.ReLU()
-        self.drop = nn.Dropout(p=0.2, inplace=False)
+        self.drop = nn.Dropout(p=0.3, inplace=False)
 
         # Branch pitch
-        self.fc_pitch = nn.Linear(n_last_fc, n_brach_fc)
-        self.pitch_out = nn.Linear(n_brach_fc, 1)
+        self.fc_pitch = nn.Linear(n_last_fc, n_branch_fc)
+        self.pitch_out = nn.Linear(n_branch_fc, 1)
 
         # Branch yaw
-        self.fc_yaw = nn.Linear(n_last_fc, n_brach_fc)
-        self.yaw_out = nn.Linear(n_brach_fc, 1)
+        self.fc_yaw = nn.Linear(n_last_fc, n_branch_fc)
+        self.yaw_out = nn.Linear(n_branch_fc, 1)
 
          # Veo que capas quedaron entrenables y que no 
         if debug:
